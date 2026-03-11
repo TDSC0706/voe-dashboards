@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   db:
     image: postgres:15-alpine
@@ -5,6 +7,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-voedashboard}
       POSTGRES_USER: ${POSTGRES_USER:-voe}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-voe_secret_2024}
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -16,6 +20,8 @@ services:
 
   backend:
     build: ./backend
+    ports:
+      - "8000:8000"
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-voe}:${POSTGRES_PASSWORD:-voe_secret_2024}@db:5432/${POSTGRES_DB:-voedashboard}
@@ -28,24 +34,11 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "${APP_PORT:-8080}:3000"
+      - "3001:3000"
     env_file: .env
     depends_on:
       - backend
     restart: unless-stopped
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.${AHM_APP_NAME:-voedashboard}.rule=Host(`${AHM_DOMAIN:-localhost}`)"
-      - "traefik.http.routers.${AHM_APP_NAME:-voedashboard}.entrypoints=websecure"
-      - "traefik.http.routers.${AHM_APP_NAME:-voedashboard}.tls.certresolver=letsencrypt"
-      - "traefik.http.services.${AHM_APP_NAME:-voedashboard}.loadbalancer.server.port=3000"
-    networks:
-      - default
-      - traefik-net
-
-networks:
-  traefik-net:
-    external: true
 
 volumes:
   pgdata:
