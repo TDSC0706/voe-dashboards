@@ -325,6 +325,15 @@ async def sync_flowup_reports():
 
         if not rows:
             logger.info("  No new Flowup reports")
+            async with async_session() as session:
+                await session.execute(
+                    text("""INSERT INTO sync_log (source, entity, status, records_synced, started_at, completed_at)
+                            VALUES ('flowup', 'reports', 'success', 0, :started, :completed)"""),
+                    {"started": started, "completed": datetime.utcnow()},
+                )
+                await session.commit()
+            await notify_ws({"type": "sync_progress", "source": "flowup", "entity": "reports", "status": "success", "records_synced": 0})
+            await notify_ws({"type": "sync_complete", "source": "flowup"})
             return {"status": "success", "count": 0}
 
         # Insert into PostgreSQL

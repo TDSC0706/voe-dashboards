@@ -20,30 +20,15 @@ export default function SyncPage() {
   const { data: configData } = useApi(() => api.getSyncConfig());
   const [syncEvents, setSyncEvents] = useState<SyncEvent[]>([]);
   const [isSyncRunning, setIsSyncRunning] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const knownIdsRef = useRef<Set<number>>(new Set());
+  const lastNewRef = useRef<number>(0);
   const [odataInterval, setOdataInterval] = useState(300);
   const [flowupInterval, setFlowupInterval] = useState(600);
   const [configSaved, setConfigSaved] = useState(false);
 
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:8000/ws/updates");
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
-      const msg: SyncEvent = JSON.parse(event.data);
-      if (msg.type === "sync_start") {
-        setIsSyncRunning(true);
-        setSyncEvents([]);
-      } else if (msg.type === "sync_progress") {
-        setSyncEvents((prev) => [...prev, msg]);
-      } else if (msg.type === "sync_complete") {
-        setIsSyncRunning(false);
-        refresh();
-        setTimeout(() => setSyncEvents([]), 5000);
-      }
-    };
-
-    return () => ws.close();
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
   useEffect(() => {
@@ -53,8 +38,44 @@ export default function SyncPage() {
     }
   }, [configData]);
 
+  const stopPolling = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    setIsSyncRunning(false);
+    refresh();
+    setTimeout(() => setSyncEvents([]), 5000);
+  };
+
   const handleSync = async () => {
+    setSyncEvents([]);
+    setIsSyncRunning(true);
+    lastNewRef.current = Date.now();
+    const pollStart = Date.now();
+
+    // Snapshot current history IDs so we only show new entries
+    try {
+      const current = await api.syncStatus();
+      knownIdsRef.current = new Set((current.history || []).map((e: any) => e.id));
+    } catch { knownIdsRef.current = new Set(); }
+
     await api.triggerSync();
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const status = await api.syncStatus();
+        const newEvents: SyncEvent[] = [];
+        for (const entry of (status.history || [])) {
+          if (!knownIdsRef.current.has(entry.id)) {
+            knownIdsRef.current.add(entry.id);
+            newEvents.push({ type: "sync_progress", source: entry.source, entity: entry.entity, status: entry.status, records_synced: entry.records_synced });
+            lastNewRef.current = Date.now();
+          }
+        }
+        if (newEvents.length > 0) setSyncEvents((prev) => [...prev, ...newEvents]);
+
+        const now = Date.now();
+        if (now - lastNewRef.current > 12000 || now - pollStart > 120000) stopPolling();
+      } catch { stopPolling(); }
+    }, 2000);
   };
 
   const handleSaveConfig = async () => {

@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.ws import notify_ws
 from app.sync.odata_sync import sync_all_odata
-from app.sync.flowup_sync import sync_flowup_members, sync_flowup_reports, sync_flowup_boards, sync_fu_boards
+from app.sync.flowup_sync import sync_flowup_members, sync_flowup_reports, sync_flowup_boards, sync_fu_boards, sync_fu_board_tasks
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -49,6 +49,7 @@ async def trigger_sync(background_tasks: BackgroundTasks):
     background_tasks.add_task(sync_flowup_members)
     background_tasks.add_task(sync_flowup_reports)
     background_tasks.add_task(sync_fu_boards)
+    background_tasks.add_task(sync_fu_board_tasks)
     return {"message": "Sync triggered"}
 
 
