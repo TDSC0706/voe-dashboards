@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     odata_sync_interval: int = 300
     flowup_sync_interval: int = 600
 
+    # Auth
+    secret_key: str = "voe-dashboard-secret-key-change-in-production"
+    access_token_expire_minutes: int = 1440  # 24 hours
+
     class Config:
         env_file = ".env"
 

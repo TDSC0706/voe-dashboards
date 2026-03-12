@@ -4,6 +4,7 @@
 
 :root {
   --sidebar-width: 240px;
+  --sidebar-collapsed-width: 56px;
 }
 
 body {

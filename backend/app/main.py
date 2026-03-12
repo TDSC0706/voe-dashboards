@@ -151,6 +151,19 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+    # Seed default admin user
+    from app.core.auth import get_password_hash
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text("""
+                INSERT INTO app_users (username, password_hash, full_name, is_admin, is_active)
+                VALUES ('admin', :hash, 'Administrador', true, true)
+                ON CONFLICT (username) DO NOTHING
+            """), {"hash": get_password_hash("admin123")})
+        except Exception:
+            pass
+    logger.info("Default admin user ensured (admin / admin123)")
+
     # Create materialized views
     async with engine.begin() as conn:
         for sql in MATERIALIZED_VIEWS_SQL:

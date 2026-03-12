@@ -1,12 +1,15 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    auth, users,
     dashboards, deliverables, flowup, iterations, pedidos, products,
     projects, sync, team, user_mappings,
 )
 
 api_router = APIRouter(prefix="/api/v1")
 
+api_router.include_router(auth.router)
+api_router.include_router(users.router)
 api_router.include_router(projects.router)
 api_router.include_router(iterations.router)
 api_router.include_router(team.router)

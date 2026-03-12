@@ -1,9 +1,36 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
+function authHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = localStorage.getItem("auth_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function handleUnauthorized(status: number) {
+  if (status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("auth_user");
+    window.location.href = "/login";
+  }
+}
+
 async function fetchApi<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  const res = await fetch(`${API_URL}${path}`, {
+    cache: "no-store",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    handleUnauthorized(res.status);
+    throw new Error(`API error: ${res.status}`);
+  }
   return res.json();
+}
+
+function authedFetch(path: string, options: RequestInit = {}) {
+  return fetch(`${API_URL}${path}`, {
+    ...options,
+    headers: { ...authHeaders(), ...(options.headers as Record<string, string> || {}) },
+  });
 }
 
 export const api = {
@@ -49,14 +76,14 @@ export const api = {
     fetchApi<any[]>(`/api/v1/flowup/user-hours?group_by=${groupBy}${memberId ? `&member_id=${memberId}` : ""}`),
   flowupBoards: () => fetchApi<any[]>("/api/v1/flowup/boards"),
   mapBoard: (id: number, projectId: number | null) =>
-    fetch(`${API_URL}/api/v1/flowup/boards/${id}/map`, {
+    authedFetch(`/api/v1/flowup/boards/${id}/map`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ project_id: projectId }),
     }).then(r => r.json()),
   flowupFuBoards: () => fetchApi<any[]>("/api/v1/flowup/fu-boards"),
   flowupProjectMappings: () => fetchApi<any[]>("/api/v1/flowup/project-mappings"),
   updateProjectFlowupMapping: (projectId: number, data: any) =>
-    fetch(`${API_URL}/api/v1/flowup/project-mapping/${projectId}`, {
+    authedFetch(`/api/v1/flowup/project-mapping/${projectId}`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then(r => r.json()),
@@ -65,10 +92,10 @@ export const api = {
 
   // Sync
   syncStatus: () => fetchApi<any>("/api/v1/sync/status"),
-  triggerSync: () => fetch(`${API_URL}/api/v1/sync/trigger`, { method: "POST" }),
+  triggerSync: () => authedFetch(`/api/v1/sync/trigger`, { method: "POST" }),
   getSyncConfig: () => fetchApi<any>("/api/v1/sync/config"),
   updateSyncConfig: (data: { odata_interval?: number; flowup_interval?: number }) =>
-    fetch(`${API_URL}/api/v1/sync/config`, {
+    authedFetch(`/api/v1/sync/config`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then(r => r.json()),
@@ -77,17 +104,17 @@ export const api = {
   dashboards: () => fetchApi<any[]>("/api/v1/dashboards"),
   dashboard: (id: number) => fetchApi<any>(`/api/v1/dashboards/${id}`),
   createDashboard: (data: any) =>
-    fetch(`${API_URL}/api/v1/dashboards`, {
+    authedFetch(`/api/v1/dashboards`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then(r => r.json()),
   updateDashboard: (id: number, data: any) =>
-    fetch(`${API_URL}/api/v1/dashboards/${id}`, {
+    authedFetch(`/api/v1/dashboards/${id}`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then(r => r.json()),
   deleteDashboard: (id: number) =>
-    fetch(`${API_URL}/api/v1/dashboards/${id}`, { method: "DELETE" }),
+    authedFetch(`/api/v1/dashboards/${id}`, { method: "DELETE" }),
 
   // Pedidos (Orders)
   pedidos: () => fetchApi<any[]>("/api/v1/pedidos"),
@@ -95,25 +122,40 @@ export const api = {
   pedidoProjects: (id: number) => fetchApi<any[]>(`/api/v1/pedidos/${id}/projects`),
   pedidoMatrix: (id: number) => fetchApi<any>(`/api/v1/pedidos/${id}/matrix`),
   createPedido: (data: any) =>
-    fetch(`${API_URL}/api/v1/pedidos`, {
+    authedFetch(`/api/v1/pedidos`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then(r => r.json()),
   updatePedido: (id: number, data: any) =>
-    fetch(`${API_URL}/api/v1/pedidos/${id}`, {
+    authedFetch(`/api/v1/pedidos/${id}`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then(r => r.json()),
   deletePedido: (id: number) =>
-    fetch(`${API_URL}/api/v1/pedidos/${id}`, { method: "DELETE" }),
+    authedFetch(`/api/v1/pedidos/${id}`, { method: "DELETE" }),
 
   // User mappings
   userMappings: () => fetchApi<any[]>("/api/v1/user-mappings"),
   createUserMapping: (data: any) =>
-    fetch(`${API_URL}/api/v1/user-mappings`, {
+    authedFetch(`/api/v1/user-mappings`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }).then(r => r.json()),
   deleteUserMapping: (id: number) =>
-    fetch(`${API_URL}/api/v1/user-mappings/${id}`, { method: "DELETE" }),
+    authedFetch(`/api/v1/user-mappings/${id}`, { method: "DELETE" }),
+
+  // App users (admin)
+  appUsers: () => fetchApi<any[]>("/api/v1/users"),
+  createAppUser: (data: any) =>
+    authedFetch(`/api/v1/users`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }).then(r => r.json()),
+  updateAppUser: (id: number, data: any) =>
+    authedFetch(`/api/v1/users/${id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }).then(r => r.json()),
+  deleteAppUser: (id: number) =>
+    authedFetch(`/api/v1/users/${id}`, { method: "DELETE" }),
 };
