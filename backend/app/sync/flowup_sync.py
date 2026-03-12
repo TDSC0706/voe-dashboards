@@ -315,7 +315,7 @@ async def sync_flowup_reports():
                     LEFT JOIN membro m ON r.Membro_Id = m.Id
                     WHERE r.Id > %s
                     ORDER BY r.Id
-                    LIMIT 5000
+                    LIMIT 50000
                     """,
                     (last_id,),
                 )
