@@ -13,7 +13,12 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     if (!user && pathname !== "/login") router.replace("/login");
-    if (user && pathname === "/login") router.replace("/");
+    if (user && pathname === "/login") {
+      router.replace(user.is_client ? "/client" : "/");
+    }
+    if (user?.is_client && !pathname.startsWith("/client")) {
+      router.replace("/client");
+    }
   }, [user, isLoading, pathname, router]);
 
   if (isLoading) {

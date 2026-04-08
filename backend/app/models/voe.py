@@ -21,7 +21,9 @@ class AppUser(Base):
     full_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_client: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

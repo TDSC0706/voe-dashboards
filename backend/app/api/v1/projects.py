@@ -214,7 +214,8 @@ async def project_deliverables(project_id: int, db: AsyncSession = Depends(get_d
 async def project_deliverables_tree(project_id: int, db: AsyncSession = Depends(get_db)):
     del_result = await db.execute(
         text("""
-            SELECT d.id, d.title, d.status, d.deadline, d.is_delayed_flag,
+            SELECT d.id, d.title, d.status, d.deadline,
+                   CASE WHEN d.deadline < NOW() AND d.status NOT IN ('COMPLETED', 'CANCELED') THEN true ELSE false END AS is_delayed_flag,
                    (SELECT COUNT(*) FROM backlog_items bi WHERE bi.deliverable_id = d.id AND bi.is_active = true) AS total_items,
                    (SELECT COUNT(*) FROM backlog_items bi
                     WHERE bi.deliverable_id = d.id AND bi.is_active = true

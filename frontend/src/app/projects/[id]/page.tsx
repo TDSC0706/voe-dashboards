@@ -8,7 +8,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { KPICard } from "@/components/ui/KPICard";
 import { Loader, ErrorMessage } from "@/components/ui/Loader";
 import { formatCurrency, formatDate, formatNumber, formatHours, riskColor } from "@/lib/utils";
-import { DollarSign, AlertTriangle, ListChecks, Users, ChevronDown, ChevronRight } from "lucide-react";
+import { DollarSign, AlertTriangle, ListChecks, Users, ChevronDown, ChevronRight, Search } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -20,6 +20,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   const id = params.id;
   const pid = parseInt(id);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [deliverableFilter, setDeliverableFilter] = useState("");
   const toggle = (key: string) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const { data: project, loading, error } = useApi(() => api.project(pid), [pid]);
@@ -243,13 +244,33 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
 
       {/* Deliverables */}
       <Card>
-        <CardHeader><h2 className="text-sm font-semibold">Entregas</h2></CardHeader>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-sm font-semibold">Entregas</h2>
+            <div className="relative w-56">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Filtrar entregas..."
+                value={deliverableFilter}
+                onChange={(e) => setDeliverableFilter(e.target.value)}
+                className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+            </div>
+          </div>
+        </CardHeader>
         <CardContent>
           {(deliverables || []).length === 0 ? (
             <p className="text-gray-400 text-sm">Nenhuma entrega encontrada</p>
-          ) : (
+          ) : (() => {
+            const filtered = (deliverables || []).filter((d: any) =>
+              !deliverableFilter || d.title.toLowerCase().includes(deliverableFilter.toLowerCase())
+            );
+            return filtered.length === 0 ? (
+              <p className="text-gray-400 text-sm">Nenhuma entrega corresponde ao filtro.</p>
+            ) : (
             <div className="space-y-2">
-              {(deliverables || []).map((d: any) => {
+              {filtered.map((d: any) => {
                 const delKey = `del-${d.id}`;
                 const isDelOpen = expanded[delKey];
                 return (
@@ -329,7 +350,8 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                 );
               })}
             </div>
-          )}
+            );
+          })()}
         </CardContent>
       </Card>
     </div>

@@ -7,6 +7,8 @@ export interface AuthUser {
   full_name: string | null;
   email: string | null;
   is_admin: boolean;
+  is_client: boolean;
+  customer_id: number | null;
 }
 
 interface AuthContextType {

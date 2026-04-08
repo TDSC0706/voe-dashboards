@@ -1,4 +1,5 @@
 """OData sync service — fetches all entity collections and upserts into PostgreSQL."""
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -29,6 +30,22 @@ def parse_dt(val: Any) -> datetime | None:
 
 def utcnow_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def parse_json_response(resp: httpx.Response) -> Any:
+    """Parse a JSON response, tolerating extra data after the valid JSON payload.
+
+    Some OData endpoints (e.g. Mendix sandbox) occasionally return a response
+    that contains a complete JSON object followed by extra bytes.  Python's
+    json.loads() raises 'Extra data' in that case.  raw_decode() stops at the
+    end of the first complete value and discards the trailing garbage.
+    """
+    try:
+        return resp.json()
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        obj, _ = decoder.raw_decode(resp.text.strip())
+        return obj
 
 logger = logging.getLogger(__name__)
 
@@ -254,7 +271,7 @@ async def fetch_odata_collection(client: httpx.AsyncClient, collection: str) -> 
     while url:
         resp = await client.get(url, params={"$top": 1000, "$count": "true"} if not all_records else {})
         resp.raise_for_status()
-        data = resp.json()
+        data = parse_json_response(resp)
         all_records.extend(data.get("value", []))
         url = data.get("@odata.nextLink")
 
@@ -373,7 +390,7 @@ async def sync_all_odata():
                 while next_url:
                     resp = await client.get(next_url, params=params if not all_records else {})
                     resp.raise_for_status()
-                    data = resp.json()
+                    data = parse_json_response(resp)
                     all_records.extend(data.get("value", []))
                     next_url = data.get("@odata.nextLink")
 

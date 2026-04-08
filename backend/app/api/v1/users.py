@@ -18,13 +18,17 @@ class UserCreate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[str] = None
     is_admin: bool = False
+    is_client: bool = False
+    customer_id: Optional[int] = None
 
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[str] = None
     is_admin: Optional[bool] = None
+    is_client: Optional[bool] = None
     is_active: Optional[bool] = None
+    customer_id: Optional[int] = None
     password: Optional[str] = None
 
 
@@ -35,7 +39,9 @@ def _serialize(u: AppUser) -> dict:
         "full_name": u.full_name,
         "email": u.email,
         "is_admin": u.is_admin,
+        "is_client": u.is_client,
         "is_active": u.is_active,
+        "customer_id": u.customer_id,
         "created_at": u.created_at,
         "last_login": u.last_login,
     }
@@ -59,6 +65,8 @@ async def create_user(data: UserCreate, db: AsyncSession = Depends(get_db)):
         full_name=data.full_name,
         email=data.email,
         is_admin=data.is_admin,
+        is_client=data.is_client,
+        customer_id=data.customer_id,
         is_active=True,
     )
     db.add(user)
@@ -80,8 +88,14 @@ async def update_user(user_id: int, data: UserUpdate, db: AsyncSession = Depends
         user.email = data.email
     if data.is_admin is not None:
         user.is_admin = data.is_admin
+    if data.is_client is not None:
+        user.is_client = data.is_client
     if data.is_active is not None:
         user.is_active = data.is_active
+    if data.customer_id is not None:
+        user.customer_id = data.customer_id
+    elif "customer_id" in data.model_fields_set:
+        user.customer_id = None
     if data.password:
         user.password_hash = get_password_hash(data.password)
 

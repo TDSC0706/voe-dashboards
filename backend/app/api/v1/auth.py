@@ -42,6 +42,8 @@ async def login(
             "full_name": user.full_name,
             "email": user.email,
             "is_admin": user.is_admin,
+            "is_client": user.is_client,
+            "customer_id": user.customer_id,
         },
     }
 
@@ -54,4 +56,6 @@ async def get_me(current_user: AppUser = Depends(get_current_user)):
         "full_name": current_user.full_name,
         "email": current_user.email,
         "is_admin": current_user.is_admin,
+        "is_client": current_user.is_client,
+        "customer_id": current_user.customer_id,
     }

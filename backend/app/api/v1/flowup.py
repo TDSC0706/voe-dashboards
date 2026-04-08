@@ -1,3 +1,5 @@
+from datetime import date as date_type, timedelta
+
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -175,6 +177,8 @@ async def upsert_project_mapping(
 async def user_hours(
     member_id: int | None = Query(None),
     group_by: str = Query("none"),  # "none" | "month" | "week"
+    start_date: str | None = Query(None),  # YYYY-MM-DD
+    end_date: str | None = Query(None),    # YYYY-MM-DD
     db: AsyncSession = Depends(get_db),
 ):
     """Hours per team member per project, optionally grouped by month or week."""
@@ -200,6 +204,12 @@ async def user_hours(
     if member_id:
         base += " AND tm.id = :member_id"
         params["member_id"] = member_id
+    if start_date:
+        base += " AND fr.start_datetime >= :start_date"
+        params["start_date"] = date_type.fromisoformat(start_date)
+    if end_date:
+        base += " AND fr.start_datetime < :end_date_excl"
+        params["end_date_excl"] = date_type.fromisoformat(end_date) + timedelta(days=1)
 
     if group_by == "month":
         sql = f"""

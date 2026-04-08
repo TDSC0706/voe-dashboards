@@ -130,6 +130,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE team_members ALTER COLUMN active DROP NOT NULL",
             "ALTER TABLE fu_cost_centers ALTER COLUMN voe_id DROP NOT NULL",
             "CREATE UNIQUE INDEX IF NOT EXISTS uix_fu_cost_centers_fu_project_id ON fu_cost_centers (fu_project_id) WHERE fu_project_id IS NOT NULL",
+            "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS is_client BOOLEAN DEFAULT false",
+            "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES customers(id)",
             # Recreate mv_iteration_progress to use energy_entries for hours_spent
             "DROP MATERIALIZED VIEW IF EXISTS mv_iteration_progress",
         ]:
@@ -193,6 +195,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+logger.info(f"Registered routes: {[r.path for r in app.routes if hasattr(r, 'path')]}")
 
 
 @app.get("/health")

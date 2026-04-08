@@ -72,8 +72,8 @@ export const api = {
   flowupMembers: () => fetchApi<any[]>("/api/v1/flowup/members"),
   flowupHoursByMember: (projectId?: number) => fetchApi<any[]>(`/api/v1/flowup/hours-by-member${projectId ? `?project_id=${projectId}` : ""}`),
   flowupDiscrepancy: () => fetchApi<any[]>("/api/v1/flowup/discrepancy"),
-  userHours: (memberId?: number, groupBy: string = "none") =>
-    fetchApi<any[]>(`/api/v1/flowup/user-hours?group_by=${groupBy}${memberId ? `&member_id=${memberId}` : ""}`),
+  userHours: (memberId?: number, groupBy: string = "none", startDate?: string, endDate?: string) =>
+    fetchApi<any[]>(`/api/v1/flowup/user-hours?group_by=${groupBy}${memberId ? `&member_id=${memberId}` : ""}${startDate ? `&start_date=${startDate}` : ""}${endDate ? `&end_date=${endDate}` : ""}`),
   flowupBoards: () => fetchApi<any[]>("/api/v1/flowup/boards"),
   mapBoard: (id: number, projectId: number | null) =>
     authedFetch(`/api/v1/flowup/boards/${id}/map`, {
@@ -143,6 +143,10 @@ export const api = {
     }).then(r => r.json()),
   deleteUserMapping: (id: number) =>
     authedFetch(`/api/v1/user-mappings/${id}`, { method: "DELETE" }),
+
+  // Client view
+  clientOverview: () => fetchApi<any>("/api/v1/client/overview"),
+  customers: () => fetchApi<any[]>("/api/v1/client/customers"),
 
   // App users (admin)
   appUsers: () => fetchApi<any[]>("/api/v1/users"),

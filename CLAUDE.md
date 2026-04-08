@@ -4,48 +4,46 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Testing if the Application is Running
 
-Use Playwright to verify the app is up. Run two checks **45 seconds apart** to confirm containers stay stable:
+Use the **Chrome DevTools MCP** (`mcp__chrome-devtools__*` tools) for all UI tests and browser interaction. Navigate to pages, take screenshots, inspect console messages, and verify network requests directly via MCP — do not use Playwright.
 
-```bash
-# First check — verify both services respond
-npx playwright test --config=playwright.health.config.ts 2>/dev/null || \
-  node -e "
-    const { chromium } = require('playwright');
-    (async () => {
-      const browser = await chromium.launch();
-      const page = await browser.newPage();
-      const fe = await page.goto('http://localhost:3001', { timeout: 15000 });
-      console.log('frontend:', fe.status());
-      const be = await page.goto('http://localhost:8000/health', { timeout: 15000 });
-      console.log('backend:', be.status());
-      await browser.close();
-    })().catch(e => { console.error(e.message); process.exit(1); });
-  "
+Quick health check:
+1. Use `mcp__chrome-devtools__navigate_page` to `http://localhost:8080` — verify the frontend loads.
+2. Check the backend from inside its container (see below) — `localhost:8000` on Windows **does NOT reach the Docker backend**.
 
-# Wait 45 seconds, then repeat the same check
-sleep 45
-
-node -e "
-  const { chromium } = require('playwright');
-  (async () => {
-    const browser = await chromium.launch();
-    const page = await browser.newPage();
-    const fe = await page.goto('http://localhost:3001', { timeout: 15000 });
-    console.log('frontend:', fe.status());
-    const be = await page.goto('http://localhost:8000/health', { timeout: 15000 });
-    console.log('backend:', be.status());
-    await browser.close();
-  })().catch(e => { console.error(e.message); process.exit(1); });
-"
-```
-
-Both should print `200`.
+Run both checks **45 seconds apart** to confirm containers stay stable.
 
 ## Docker & Networking
 
 Docker Desktop is installed on Windows (not WSL — do not use WSL for Docker). Standard `docker compose` commands work from any terminal.
 
 **Important:** If docker commands fail with a connection error, the `DOCKER_HOST` env var may still be set to the old WSL value (`tcp://localhost:2375`). Either remove it from system environment variables or prefix commands with `DOCKER_HOST=`. The Docker context should be `desktop-linux`.
+
+### ⚠️ Backend port is NOT exposed to the Windows host
+
+The `docker-compose.yml` intentionally has **no `ports:` mapping for the backend** (production setup uses Traefik). `localhost:8000` on Windows is served by a separate local WSL process — **not the Docker backend container**. Sending curl/HTTP requests to `localhost:8000` will hit the wrong process.
+
+**Always interact with the backend container directly:**
+
+```bash
+# Run a Python script inside the container (e.g. trigger a sync)
+docker exec voedashboard-backend-1 python -c "
+import asyncio, sys
+sys.path.insert(0, '/app')
+from app.sync.odata_sync import sync_all_odata
+import json; print(json.dumps(asyncio.run(sync_all_odata()), indent=2))
+"
+
+# Query the database
+docker-compose exec -T db psql -U voe -d voedashboard -c "SELECT ..."
+
+# Read backend logs
+docker logs voedashboard-backend-1
+```
+
+Port mapping summary (as of production-compat branch):
+- Frontend → `localhost:8080` (host) maps to container port 3000
+- Backend → **no host port** (internal only, container name `backend` on Docker network)
+- PostgreSQL → internal only (container name `db`)
 
 FlowUp MySQL table reference: `costcenters` (columns: `Id`, `Name`, `Client_Id`). Reports table: `reportagem` (`Projeto_Id` = `costcenters.Id`). Members table: `membro`.
 

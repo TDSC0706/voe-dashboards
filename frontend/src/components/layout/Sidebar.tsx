@@ -68,7 +68,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 py-2 overflow-y-auto overflow-x-hidden">
-        {navItems.map((item) => {
+        {!user?.is_client && navItems.map((item) => {
           const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
             <Link
@@ -88,7 +88,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             </Link>
           );
         })}
-        {user?.is_admin && (
+        {!user?.is_client && user?.is_admin && (
           <Link
             href="/settings/users"
             title={collapsed ? "Usuários" : undefined}
@@ -116,6 +116,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium truncate">{user?.full_name || user?.username}</p>
               {user?.is_admin && <p className="text-xs text-white/50">Admin</p>}
+              {user?.is_client && <p className="text-xs text-white/50">Cliente</p>}
             </div>
           </div>
         )}
