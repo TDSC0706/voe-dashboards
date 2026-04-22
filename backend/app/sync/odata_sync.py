@@ -32,20 +32,27 @@ def utcnow_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def parse_json_response(resp: httpx.Response) -> Any:
-    """Parse a JSON response, tolerating extra data after the valid JSON payload.
+def parse_json_response_with_trailing(resp: httpx.Response) -> tuple[Any, str]:
+    """Parse a JSON response and return (parsed_obj, trailing_text).
 
-    Some OData endpoints (e.g. Mendix sandbox) occasionally return a response
-    that contains a complete JSON object followed by extra bytes.  Python's
-    json.loads() raises 'Extra data' in that case.  raw_decode() stops at the
-    end of the first complete value and discards the trailing garbage.
+    Mendix's OData endpoint occasionally returns a complete JSON page followed
+    by an inline error payload (the server crashes mid-stream while serializing
+    a record but had already written HTTP 200 + 31 valid records). We need to
+    surface that trailing error to the caller so it can recover.
     """
+    raw = resp.text
     try:
-        return resp.json()
+        return resp.json(), ""
     except json.JSONDecodeError:
         decoder = json.JSONDecoder()
-        obj, _ = decoder.raw_decode(resp.text.strip())
-        return obj
+        obj, idx = decoder.raw_decode(raw.strip())
+        return obj, raw.strip()[idx:].strip()
+
+
+def parse_json_response(resp: httpx.Response) -> Any:
+    """Backwards-compatible wrapper that discards trailing payload."""
+    obj, _ = parse_json_response_with_trailing(resp)
+    return obj
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +285,141 @@ async def fetch_odata_collection(client: httpx.AsyncClient, collection: str) -> 
     return all_records
 
 
+async def fetch_collection_with_recovery(
+    client: httpx.AsyncClient,
+    collection: str,
+    expand_props: list[str],
+    voe_id_field: str,
+) -> list[dict]:
+    """Fetch a collection with $expand, recovering from Mendix mid-stream truncation.
+
+    Mendix's OData has a bug where listing /<Collection>?$expand=... can crash
+    mid-response when one record's nav property fails to serialize. The server
+    sends HTTP 200, the first N valid records, then appends an inline error
+    payload. We detect that, then backfill the missing records by listing the
+    collection without $expand (to get the full ID set) and refetching each
+    missing record individually with $expand (which works one-by-one).
+    """
+    base_url = f"{settings.odata_base_url}/{collection}"
+    params: dict[str, str] = {}
+    if expand_props:
+        params["$expand"] = ",".join(expand_props)
+
+    all_records: list[dict] = []
+    truncated_trailing = ""
+    next_url: str | None = base_url
+    while next_url:
+        resp = await client.get(next_url, params=params if not all_records else {})
+        resp.raise_for_status()
+        data, trailing = parse_json_response_with_trailing(resp)
+        all_records.extend(data.get("value", []))
+        if trailing and '"error"' in trailing:
+            truncated_trailing = trailing
+            break
+        next_url = data.get("@odata.nextLink")
+
+    if not truncated_trailing:
+        return all_records
+
+    logger.warning(
+        f"  {collection}: Mendix truncated response after {len(all_records)} records; "
+        f"trailing payload: {truncated_trailing[:200]}"
+    )
+
+    full_records: list[dict] = []
+    next_full: str | None = base_url
+    while next_full:
+        resp = await client.get(next_full)
+        resp.raise_for_status()
+        data, trailing = parse_json_response_with_trailing(resp)
+        full_records.extend(data.get("value", []))
+        if trailing and '"error"' in trailing:
+            logger.error(
+                f"  {collection}: no-expand fetch also truncated after {len(full_records)} records; "
+                f"cannot fully recover. Trailing: {trailing[:200]}"
+            )
+            break
+        next_full = data.get("@odata.nextLink")
+
+    present_ids = {r.get(voe_id_field) for r in all_records if r.get(voe_id_field) is not None}
+    missing = [r for r in full_records if r.get(voe_id_field) is not None and r[voe_id_field] not in present_ids]
+    logger.info(f"  {collection}: backfilling {len(missing)} missing record(s) individually")
+
+    for rec in missing:
+        vid = rec[voe_id_field]
+        merged = await _fetch_one_with_per_nav_recovery(
+            client, base_url, vid, voe_id_field, expand_props, fallback=rec,
+        )
+        all_records.append(merged)
+
+    return all_records
+
+
+def _is_error_payload(data: Any, trailing: str, voe_id_field: str) -> bool:
+    """True when the OData response is/contains an error payload instead of a record."""
+    if trailing and '"error"' in trailing:
+        return True
+    if isinstance(data, dict) and "error" in data and not data.get(voe_id_field):
+        return True
+    return False
+
+
+async def _fetch_one_with_per_nav_recovery(
+    client: httpx.AsyncClient,
+    base_url: str,
+    vid: Any,
+    voe_id_field: str,
+    expand_props: list[str],
+    fallback: dict,
+) -> dict:
+    """Fetch a single record, working around Mendix per-record expand crashes.
+
+    First tries the combined $expand. If that returns an error payload, fetches
+    the base record without $expand and then each nav prop separately, merging
+    whichever succeed. Any nav whose individual expand also crashes is left
+    null and the FK will be NULL in the upsert.
+    """
+    entity_url = f"{base_url}({vid})"
+    try:
+        params: dict[str, str] = {}
+        if expand_props:
+            params["$expand"] = ",".join(expand_props)
+        resp = await client.get(entity_url, params=params)
+        resp.raise_for_status()
+        data, trailing = parse_json_response_with_trailing(resp)
+        if not _is_error_payload(data, trailing, voe_id_field):
+            return data
+    except Exception as e:
+        logger.warning(f"  {entity_url}: combined-expand fetch failed ({e})")
+
+    logger.warning(f"  {entity_url}: combined expand errored on Mendix; falling back to per-nav fetch")
+    try:
+        resp = await client.get(entity_url)
+        resp.raise_for_status()
+        base_data, base_trailing = parse_json_response_with_trailing(resp)
+        if _is_error_payload(base_data, base_trailing, voe_id_field):
+            logger.warning(f"  {entity_url}: even no-expand individual errored; using list fallback")
+            return fallback
+    except Exception as e:
+        logger.warning(f"  {entity_url}: no-expand individual fetch failed ({e}); using list fallback")
+        return fallback
+
+    merged = dict(base_data)
+    for nav in expand_props:
+        try:
+            resp = await client.get(entity_url, params={"$expand": nav})
+            resp.raise_for_status()
+            d, trailing = parse_json_response_with_trailing(resp)
+            if _is_error_payload(d, trailing, voe_id_field):
+                logger.warning(f"  {entity_url}: $expand={nav} errored on Mendix; leaving FK null")
+                continue
+            if nav in d:
+                merged[nav] = d[nav]
+        except Exception as e:
+            logger.warning(f"  {entity_url}: $expand={nav} fetch failed ({e}); leaving FK null")
+    return merged
+
+
 def extract_nav_id(record: dict, nav_prop: str) -> int | None:
     """Extract a navigation property's ID if it was expanded, or from deferred link."""
     nav = record.get(nav_prop)
@@ -378,21 +520,14 @@ async def sync_all_odata():
             started = utcnow_naive()
 
             try:
-                # Fetch with expanded navigation properties
                 expand_props = list(entity_def["nav_fks"].keys())
-                url = f"{settings.odata_base_url}/{collection}"
-                all_records = []
-                params: dict[str, str] = {}
-                if expand_props:
-                    params["$expand"] = ",".join(expand_props)
-
-                next_url: str | None = url
-                while next_url:
-                    resp = await client.get(next_url, params=params if not all_records else {})
-                    resp.raise_for_status()
-                    data = parse_json_response(resp)
-                    all_records.extend(data.get("value", []))
-                    next_url = data.get("@odata.nextLink")
+                voe_id_field = next(
+                    (k for k, v in entity_def["columns"].items() if v == "voe_id"),
+                    "ID",
+                )
+                all_records = await fetch_collection_with_recovery(
+                    client, collection, expand_props, voe_id_field,
+                )
 
                 async with async_session() as session:
                     count = await upsert_entity(
